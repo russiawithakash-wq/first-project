@@ -1,0 +1,100 @@
+name: Entropy Analysis with Rospatent Certified Toolkit
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+    inputs:
+      corpus_file:
+        description: 'Corpus file name'
+        required: true
+        default: 'corpus/my_corpus.txt'
+      test_file:
+        description: 'Test file name (optional)'
+        required: false
+        default: 'test/my_test.txt'
+      alphabet:
+        description: 'Alphabet (1=Latin, 2=Cyrillic UTF-8, 3=Cyrillic Windows-1251)'
+        required: true
+        default: '2'
+
+jobs:
+  entropy-analysis:
+    runs-on: macos-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Download Toolkit_macOS
+      run: |
+        curl -L -o Toolkit_macOS https://github.com/Nastasian/entropy/releases/download/v2/Toolkit_macOS
+        chmod 755 Toolkit_macOS
+    
+    - name: Verify input files
+      run: |
+        if [ ! -f "${{ github.event.inputs.corpus_file }}" ]; then
+          mkdir -p corpus
+          echo "привет мир это тестовый корпус для анализа энтропии" > corpus/my_corpus.txt
+          echo "сегодня хороший день для науки" >> corpus/my_corpus.txt
+        fi
+    
+    - name: Create automation script
+      run: |
+        cat > run_toolkit.exp << 'EOF'
+        #!/usr/bin/expect -f
+        set timeout 60
+        set alphabet [lindex $argv 0]
+        set corpus_file [lindex $argv 1]
+        set test_file [lindex $argv 2]
+        
+        spawn ./Toolkit_macOS
+        
+        expect "Choose the alphabet*" { send "$alphabet\r" }
+        expect "Enter a corpus file name*" { send "$corpus_file\r" }
+        expect "Select if you have a test sample*" { 
+          if { $test_file != "none" } {
+            send "1\r"
+            expect "Enter test file name*" { send "$test_file\r" }
+          } else {
+            send "2\r"
+          }
+        }
+        
+        expect eof
+        EOF
+        
+        chmod +x run_toolkit.exp
+    
+    - name: Run entropy analysis
+      run: |
+        CORPUS="${{ github.event.inputs.corpus_file }}"
+        TEST="${{ github.event.inputs.test_file }}"
+        ALPH="${{ github.event.inputs.alphabet }}"
+        
+        if [ ! -f "$CORPUS" ]; then
+          CORPUS="corpus/my_corpus.txt"
+        fi
+        
+        if [ -n "$TEST" ] && [ -f "$TEST" ]; then
+          ./run_toolkit.exp "$ALPH" "$CORPUS" "$TEST"
+        else
+          ./run_toolkit.exp "$ALPH" "$CORPUS" "none"
+        fi
+    
+    - name: Show results
+      run: |
+        echo "========== ANALYSIS RESULTS =========="
+        if [ -f information.txt ]; then
+          cat information.txt
+        fi
+    
+    - name: Upload results
+      uses: actions/upload-artifact@v4
+      with:
+        name: entropy-results
+        path: |
+          *.txt
+          information.txt
+          vocabulary.txt
+          [0-9]*.txt
